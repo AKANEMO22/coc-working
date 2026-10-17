@@ -1,57 +1,129 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import {
-  BarChart3,
   CheckCircle,
   AlertTriangle,
   BookOpen,
   RotateCcw,
   ArrowRight,
-  Sparkles,
   Award,
   Loader2,
   FileCheck2,
 } from "lucide-react";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+
+interface ReportTurn {
+  turn_number: number;
+  stage: string;
+  score: number;
+  question: string;
+  candidate_summary: string;
+  better_answer_hint: string;
+}
+
+interface RoadmapItem {
+  skill: string;
+  action: string;
+  estimated_hours: number;
+  priority: string;
+}
+
+interface InterviewReport {
+  report_status?: string;
+  session_id?: string;
+  role?: string;
+  message?: string;
+  scored_answers?: number;
+  total_answers?: number;
+  overall_score?: number;
+  grade?: string;
+  radar_scores?: Record<string, number>;
+  strengths?: string[];
+  weaknesses?: string[];
+  turn_evaluations?: ReportTurn[];
+  learning_roadmap?: RoadmapItem[];
+  retry_recommendations?: string[];
+  detail?: string;
+}
 
 export default function ReportPage() {
   const params = useParams();
   const sessionId = params.sessionId as string;
 
   const [loading, setLoading] = useState(true);
-  const [reportData, setReportData] = useState<any>(null);
+  const [reportError, setReportError] = useState<string | null>(null);
+  const [reportData, setReportData] = useState<InterviewReport | null>(null);
 
-  useEffect(() => {
-    async function fetchReport() {
-      try {
-        const res = await fetch(`${API_BASE}/api/v1/sessions/${sessionId}/report`);
-        if (res.ok) {
-          const data = await res.json();
-          setReportData(data);
-        }
-      } catch (e) {
-        console.warn("Failed to fetch report:", e);
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    if (sessionId) {
-      fetchReport();
+  const fetchReport = useCallback(async (method: "GET" | "POST" = "GET") => {
+    setLoading(true);
+    setReportError(null);
+    try {
+      const reportPath = method === "POST" ? "/report/retry" : "/report";
+      const res = await fetch(`${API_BASE}/api/v1/sessions/${sessionId}${reportPath}`, { method });
+      const data = await res.json().catch(() => null) as InterviewReport | null;
+      if (!res.ok) throw new Error(data?.detail || "Không tải được báo cáo.");
+      setReportData(data);
+    } catch (e) {
+      setReportError(e instanceof Error ? e.message : "Không tải được báo cáo.");
+    } finally {
+      setLoading(false);
     }
   }, [sessionId]);
+
+  useEffect(() => {
+    if (!sessionId) return;
+    const timer = setTimeout(() => void fetchReport(), 0);
+    return () => clearTimeout(timer);
+  }, [fetchReport, sessionId]);
 
   if (loading) {
     return (
       <div className="min-h-[70vh] flex flex-col items-center justify-center gap-3">
         <Loader2 className="w-8 h-8 text-[var(--coc-primary)] animate-spin" />
         <p className="text-sm text-[var(--text-secondary)] font-medium">
-          Đang tổng hợp báo cáo đánh giá toàn diện...
+          {reportError ? "Không tải được trạng thái báo cáo." : "Đang tổng hợp rubric sau khi kết thúc phiên..."}
         </p>
+        {reportError && <p role="alert" className="text-sm text-rose-300">{reportError}</p>}
+        {reportError && <button onClick={() => void fetchReport()} className="rounded-lg border px-3 py-2 text-sm">Thử lại</button>}
+      </div>
+    );
+  }
+
+  if (reportData?.report_status && ["IN_PROGRESS", "PENDING_EVALUATION", "PENDING_GENERATION"].includes(reportData.report_status)) {
+    const inProgress = reportData?.report_status === "IN_PROGRESS";
+    return (
+      <div className="min-h-[70vh] flex flex-col items-center justify-center gap-4 px-6 text-center">
+        <Loader2 className="w-9 h-9 text-[var(--coc-primary)]" />
+        <h1 className="text-2xl font-bold text-[var(--text-primary)]">
+          {inProgress ? "Phiên phỏng vấn chưa kết thúc" : "Đánh giá rubric đang chờ model"}
+        </h1>
+        <p className="max-w-xl text-sm text-[var(--text-secondary)]">
+          {reportData?.message || "Không hiển thị điểm tạm. Các câu trả lời đã chốt sẽ được chấm sau khi kết thúc phiên."}
+        </p>
+        {reportData?.total_answers !== undefined && (
+          <p className="text-xs text-[var(--text-muted)]">Đã có kết quả thật: {reportData.scored_answers || 0}/{reportData.total_answers} câu trả lời.</p>
+        )}
+        <div className="flex gap-3">
+          <button onClick={() => void fetchReport("POST")} disabled={loading || inProgress} className="rounded-lg border px-4 py-2 text-sm disabled:opacity-50">
+            {loading ? "Đang kiểm tra..." : "Thử đánh giá lại"}
+          </button>
+          <Link href="/interview" className="rounded-lg border px-4 py-2 text-sm">Về phỏng vấn</Link>
+        </div>
+      </div>
+    );
+  }
+
+  if (reportData?.report_status === "NO_EVALUATION") {
+    return (
+      <div className="min-h-[70vh] flex flex-col items-center justify-center gap-4 px-6 text-center">
+        <FileCheck2 className="w-10 h-10 text-[var(--text-muted)]" />
+        <h1 className="text-2xl font-bold text-[var(--text-primary)]">Chưa có câu trả lời để chấm</h1>
+        <p className="max-w-xl text-sm text-[var(--text-secondary)]">Phiên đã kết thúc nhưng không có câu trả lời nào được xác nhận. Hệ thống không gán điểm 0 thay cho dữ liệu còn thiếu.</p>
+        <Link href="/interview" className="rounded-lg border px-4 py-2 text-sm">Tạo phiên khác</Link>
       </div>
     );
   }
@@ -182,7 +254,7 @@ export default function ReportPage() {
             </h3>
           </div>
           <div className="space-y-4">
-            {reportData.turn_evaluations.map((t: any, idx: number) => (
+            {reportData.turn_evaluations.map((t, idx: number) => (
               <div
                 key={idx}
                 className="p-4 rounded-2xl bg-[var(--bg-primary)] border border-[var(--border-color)] space-y-2 text-xs"
@@ -217,7 +289,7 @@ export default function ReportPage() {
         <div className="space-y-3">
           {(reportData?.learning_roadmap && reportData.learning_roadmap.length > 0 ? reportData.learning_roadmap : [
             { skill: "Nền tảng chuyên môn", action: "Hoàn thành các lượt phỏng vấn để hệ thống phân tích lộ trình", estimated_hours: 0, priority: "LOW" },
-          ]).map((item: any, i: number) => (
+          ]).map((item, i: number) => (
             <div
               key={i}
               className="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 rounded-xl bg-[var(--bg-primary)] border border-[var(--border-color)] gap-2"

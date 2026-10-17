@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useRef } from "react";
-import { Upload, FileText, CheckCircle2, AlertCircle, Loader2, X } from "lucide-react";
+import { Upload, FileText, AlertCircle, Loader2, X } from "lucide-react";
 
 interface CVUploaderProps {
   onFileSelected: (file: File) => void;
@@ -113,7 +113,7 @@ export function CVUploader({
             {isAnalyzing ? (
               <div className="flex items-center gap-2 text-xs text-[var(--coc-primary)] font-medium">
                 <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Đang phân tích ATS & STAR...</span>
+                <span>Đang đọc CV để chuẩn bị phỏng vấn...</span>
               </div>
             ) : (
               <button

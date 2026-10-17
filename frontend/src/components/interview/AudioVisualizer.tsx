@@ -5,11 +5,15 @@ import { Mic, Volume2 } from "lucide-react";
 
 interface AudioVisualizerProps {
   status: "connecting" | "ready" | "listening" | "thinking" | "speaking";
+  vadMode?: "silero" | "energy";
+  thinkingMessage?: string;
+  listeningMessage?: string;
+  speechDetected?: boolean;
   audioLevel?: number; // 0.0 to 1.0
   frequencyData?: Uint8Array | null;
 }
 
-export function AudioVisualizer({ status, audioLevel = 0, frequencyData }: AudioVisualizerProps) {
+export function AudioVisualizer({ status, vadMode = "energy", thinkingMessage, listeningMessage, speechDetected = false, audioLevel = 0, frequencyData }: AudioVisualizerProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
@@ -72,7 +76,7 @@ export function AudioVisualizer({ status, audioLevel = 0, frequencyData }: Audio
   }, [status, audioLevel, frequencyData]);
 
   return (
-    <div className="flex flex-col items-center justify-center p-6 w-full max-w-xl">
+    <div data-vad-mode={vadMode} className="flex flex-col items-center justify-center p-6 w-full max-w-xl">
       {/* Orb Center */}
       <div className="relative mb-6">
         <div
@@ -93,7 +97,7 @@ export function AudioVisualizer({ status, audioLevel = 0, frequencyData }: Audio
                   key={i}
                   className="w-1.5 bg-white rounded-full animate-pulse"
                   style={{
-                    height: `${20 + Math.random() * 24}px`,
+                    height: `${20 + ((i * 11 + 7) % 25)}px`,
                     animationDelay: `${i * 0.12}s`,
                   }}
                 />
@@ -139,16 +143,22 @@ export function AudioVisualizer({ status, audioLevel = 0, frequencyData }: Audio
       {/* Status Label */}
       <div className="text-center mt-5">
         <p className="text-lg font-semibold text-[var(--text-primary)]">
-          {status === "connecting" && "Đang kết nối tới phòng phỏng vấn..."}
-          {status === "ready" && "Sẵn sàng — Nhấn micro để bắt đầu trả lời"}
-          {status === "listening" && "🎙️ Đang lắng nghe bạn nói (VAD kích hoạt)..."}
-          {status === "thinking" && "💭 Đang đánh giá câu trả lời theo rubric..."}
+          {status === "connecting" && "Đang kết nối phiên và micro..."}
+          {status === "ready" && "Sẵn sàng — micro sẽ tự bật khi đến lượt bạn trả lời"}
+          {status === "listening" && (listeningMessage || (speechDetected
+            ? "🎙️ Đã nhận giọng — đang nghe..."
+            : `🎙️ Đang nghe — ${vadMode === "silero" ? "Silero" : "VAD local dự phòng"} sẽ tự chốt khi bạn dừng nói...`))}
+          {status === "thinking" && `💭 ${thinkingMessage || "Đang xử lý lượt phỏng vấn..."}`}
           {status === "speaking" && "🔊 Phỏng vấn viên đang phản hồi (Barge-in sẵn sàng)..."}
         </p>
         <p className="text-xs text-[var(--text-muted)] mt-1">
           {status === "listening"
-            ? "Nói xong hãy dừng nói (VAD tự chốt) hoặc nhấn tắt mic."
-            : "Hệ thống hỗ trợ chen ngang (barge-in) khi phỏng vấn viên đang nói."}
+            ? listeningMessage
+              ? "Mic vẫn mở và sẽ tự chốt sau khi bạn ngừng nói."
+              : "Bạn có thể nói tiếp sau một nhịp dừng; Laya theo dõi để hỏi làm rõ khi cần."
+            : status === "ready"
+              ? "Hãy cấp quyền micro nếu trình duyệt hỏi; hệ thống sẽ tự nghe sau khi đọc câu hỏi."
+              : "Hệ thống hỗ trợ chen ngang (barge-in) khi phỏng vấn viên đang nói."}
         </p>
       </div>
     </div>

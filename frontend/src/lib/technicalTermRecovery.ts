@@ -1,15 +1,15 @@
 /**
  * CÓC ĐI LÀM — Technical-Term Recovery (§5)
  * Bộ phục hồi thuật ngữ kỹ thuật tiếng Anh khi ứng viên nói code-switching (Việt - Anh).
- * Tier 1: Phonetic & Regex Dictionary Matching
- * Tier 2: Fuzzy Levenshtein Distance & Context Correction
+ * Dictionary matches are suggestions only, not acoustic evidence or
+ * calibrated confidence. Qwen's original words must remain untouched.
  */
 
 export interface TermCandidate {
   raw: string;
   recovered: string;
-  confidence: number;
   domain: string;
+  source: "phonetic_lexicon";
 }
 
 // Từ điển phát âm bồi / việt hóa sang chuẩn quốc tế
@@ -102,25 +102,24 @@ export class TechnicalTermRecovery {
     recoveredText: string;
     candidates: TermCandidate[];
   } {
-    let text = rawTranscript;
     const candidates: TermCandidate[] = [];
 
     // Duyệt qua các từ điển âm vị
     for (const [phonetic, meta] of Object.entries(PHONETIC_LEXICON)) {
-      const regex = new RegExp(`\\b${phonetic}\\b`, "gi");
-      if (regex.test(text)) {
-        text = text.replace(regex, meta.term);
+      const escaped = phonetic.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const regex = new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, "giu");
+      if (regex.test(rawTranscript)) {
         candidates.push({
           raw: phonetic,
           recovered: meta.term,
-          confidence: 0.95,
           domain: meta.domain,
+          source: "phonetic_lexicon",
         });
       }
     }
 
     return {
-      recoveredText: text,
+      recoveredText: rawTranscript,
       candidates,
     };
   }

@@ -1,14 +1,19 @@
-version: "3.8"
-
 services:
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
     ports:
-      - "8000:8000"
+      - "8000:7860"
     env_file:
       - ./backend/.env
+    environment:
+      NORMALIZED_DATA_DIR: /app/data/normalized
+    volumes:
+      - type: bind
+        source: ./data/normalized
+        target: /app/data/normalized
+        read_only: true
     restart: always
 
   frontend:
@@ -18,7 +23,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NEXT_PUBLIC_API_URL=http://127.0.0.1:8000
     depends_on:
       - backend
     restart: always

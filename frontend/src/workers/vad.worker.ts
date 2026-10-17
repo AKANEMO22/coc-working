@@ -1,225 +1,150 @@
 /**
- * CÓC ĐI LÀM — VAD Worker (§4, §9)
- * Silero VAD ONNX via onnxruntime-web
- * Phát hiện speech start/end, barge-in trigger.
- * Chạy trong Web Worker — không block UI thread.
+ * Local Silero VAD 6.2.3 inference worker.
+ * Model input contract: 512 mono samples at 16 kHz plus 64 samples of context.
  */
-
 /// <reference lib="webworker" />
 
-let vadModel: any = null;
-let isInitialized = false;
+import { SileroVadEndpoint } from "../lib/sileroVadEndpoint";
+import type { InferenceSession } from "onnxruntime-web";
 
-const SPEECH_THRESHOLD = 0.5;
-const SILENCE_THRESHOLD = 0.35;
-const MIN_SPEECH_DURATION_MS = 250;
-const MIN_SILENCE_DURATION_MS = 700;
+const SAMPLE_RATE = 16000;
+const FRAME_SAMPLES = 512;
+const CONTEXT_SAMPLES = 64;
+const STATE_KEY = "silero-vad-6.2.3";
 
-let speechStartTime = 0;
-let silenceStartTime = 0;
-let isSpeechActive = false;
-let sampleRate = 16000;
+let ort: typeof import("onnxruntime-web/wasm") | null = null;
+let session: InferenceSession | null = null;
+const hiddenState = new Float32Array(2 * 1 * 128);
+const context = new Float32Array(CONTEXT_SAMPLES);
+let pendingSamples: Float32Array<ArrayBufferLike> = new Float32Array(0);
+let initialized = false;
+let workQueue = Promise.resolve();
+const endpoint = new SileroVadEndpoint({
+  speechThreshold: 0.5,
+  silenceThreshold: 0.35,
+  minSpeechDurationMs: 250,
+  endSilenceDurationMs: 1200,
+});
 
-// Internal state for Silero VAD ONNX
-let h_state: Float32Array | null = null;
-let c_state: Float32Array | null = null;
-
-self.onmessage = async (event: MessageEvent) => {
-  const { type, payload } = event.data;
-
-  switch (type) {
-    case "init":
-      await initVAD(payload?.modelUrl);
-      break;
-
-    case "process":
-      if (isInitialized && payload?.audioData) {
-        processAudioChunk(payload.audioData);
-      }
-      break;
-
-    case "reset":
+self.onmessage = (event: MessageEvent) => {
+  const { type, payload } = event.data ?? {};
+  if (type === "init") {
+    enqueue(() => initialize(payload?.modelUrl));
+  } else if (type === "process" && payload?.audioData) {
+    const audioData = payload.audioData as Float32Array;
+    const sampleRate = Number(payload.sampleRate);
+    enqueue(() => processAudioChunk(audioData, sampleRate));
+  } else if (type === "reset") {
+    enqueue(() => resetState());
+  } else if (type === "destroy") {
+    enqueue(async () => {
+      initialized = false;
+      if (session) await session.release();
+      session = null;
+      ort = null;
       resetState();
-      break;
-
-    case "destroy":
-      vadModel = null;
-      isInitialized = false;
-      break;
+    });
   }
 };
 
-async function initVAD(modelUrl?: string) {
-  try {
-    const ort = await import("onnxruntime-web");
+function enqueue(operation: () => Promise<void> | void): void {
+  workQueue = workQueue
+    .then(operation)
+    .catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      self.postMessage({ type: "error", payload: { message, fatal: !initialized } });
+    });
+}
 
-    // Cấu hình ONNX Runtime WASM
-    ort.env.wasm.wasmPaths = "/wasm/";
+async function initialize(modelUrl?: string): Promise<void> {
+  try {
+    ort = await import("onnxruntime-web/wasm");
+    // A single WASM worker avoids cross-origin isolation/threading requirements.
+    ort.env.wasm.numThreads = 1;
+    ort.env.wasm.proxy = false;
+    // Next's module-worker bundle cannot infer the original WASM package URL.
+    // Serve the matching ONNX Runtime binary from the app's public directory.
+    ort.env.wasm.wasmPaths = "/models/ort/";
 
     const url = modelUrl || "/models/silero_vad.onnx";
+    self.postMessage({ type: "status", payload: { stage: "downloading", model: STATE_KEY } });
+    const response = await fetch(url, { cache: "force-cache" });
+    if (!response.ok) throw new Error("Không tải được Silero VAD (" + response.status + ").");
+    const modelData = await response.arrayBuffer();
 
-    // Thử tải từ IndexedDB cache trước
-    let modelData: ArrayBuffer | null = await loadFromCache("silero_vad");
-
-    if (!modelData) {
-      // Tải từ URL
-      self.postMessage({ type: "status", payload: { stage: "downloading", progress: 0 } });
-      const response = await fetch(url);
-      modelData = await response.arrayBuffer();
-
-      // Lưu vào cache
-      await saveToCache("silero_vad", modelData);
-      self.postMessage({ type: "status", payload: { stage: "downloaded", progress: 100 } });
-    }
-
-    vadModel = await ort.InferenceSession.create(modelData, {
+    session = await ort.InferenceSession.create(modelData, {
       executionProviders: ["wasm"],
+      graphOptimizationLevel: "all",
     });
 
-    // Khởi tạo hidden states
-    h_state = new Float32Array(2 * 1 * 64).fill(0);
-    c_state = new Float32Array(2 * 1 * 64).fill(0);
+    const requiredInputs = ["input", "state", "sr"];
+    if (!requiredInputs.every((name) => session?.inputNames.includes(name))) {
+      throw new Error("Silero VAD có input không mong đợi: " + session.inputNames.join(", "));
+    }
+    if (!session.outputNames.includes("output") || !session.outputNames.includes("stateN")) {
+      throw new Error("Silero VAD có output không mong đợi: " + session.outputNames.join(", "));
+    }
 
-    isInitialized = true;
-    self.postMessage({ type: "ready" });
+    resetState();
+    initialized = true;
+    self.postMessage({ type: "ready", payload: { model: STATE_KEY, sampleRate: SAMPLE_RATE } });
   } catch (error) {
-    self.postMessage({
-      type: "error",
-      payload: { message: `VAD init failed: ${error}` },
-    });
+    initialized = false;
+    session = null;
+    throw error;
   }
 }
 
-async function processAudioChunk(audioData: Float32Array) {
-  if (!vadModel || !h_state || !c_state) return;
+async function processAudioChunk(audioData: Float32Array, sampleRate: number): Promise<void> {
+  if (!initialized || !ort || !session || audioData.length === 0) return;
+  if (sampleRate !== SAMPLE_RATE) {
+    throw new Error("Silero VAD cần PCM " + SAMPLE_RATE + " Hz; nhận được " + sampleRate + " Hz.");
+  }
 
-  try {
-    const ort = await import("onnxruntime-web");
+  pendingSamples = append(pendingSamples, audioData);
+  while (pendingSamples.length >= FRAME_SAMPLES) {
+    const frame = pendingSamples.slice(0, FRAME_SAMPLES);
+    pendingSamples = pendingSamples.slice(FRAME_SAMPLES);
 
-    // Prepare inputs for Silero VAD
-    const inputTensor = new ort.Tensor("float32", audioData, [1, audioData.length]);
-    const srTensor = new ort.Tensor("int64", BigInt64Array.from([BigInt(sampleRate)]), []);
-    const hTensor = new ort.Tensor("float32", h_state, [2, 1, 64]);
-    const cTensor = new ort.Tensor("float32", c_state, [2, 1, 64]);
+    const input = new Float32Array(CONTEXT_SAMPLES + FRAME_SAMPLES);
+    input.set(context, 0);
+    input.set(frame, CONTEXT_SAMPLES);
 
-    const feeds = {
-      input: inputTensor,
-      sr: srTensor,
-      h: hTensor,
-      c: cTensor,
-    };
+    const result = await session.run({
+      input: new ort.Tensor("float32", input, [1, input.length]),
+      state: new ort.Tensor("float32", hiddenState, [2, 1, 128]),
+      sr: new ort.Tensor("int64", BigInt64Array.from([BigInt(SAMPLE_RATE)]), [1]),
+    });
 
-    const results = await vadModel.run(feeds);
+    const probability = (result.output.data as Float32Array)[0] ?? 0;
+    hiddenState.set(result.stateN.data as Float32Array);
+    context.set(input.subarray(input.length - CONTEXT_SAMPLES));
 
-    // Update hidden states
-    h_state = results.hn.data as Float32Array;
-    c_state = results.cn.data as Float32Array;
-
-    // Get speech probability
-    const speechProb = (results.output.data as Float32Array)[0];
-    const now = Date.now();
-
-    // Detect speech transitions
-    if (speechProb >= SPEECH_THRESHOLD && !isSpeechActive) {
-      if (speechStartTime === 0) {
-        speechStartTime = now;
-      }
-      if (now - speechStartTime >= MIN_SPEECH_DURATION_MS) {
-        isSpeechActive = true;
-        silenceStartTime = 0;
-        self.postMessage({
-          type: "speech_start",
-          payload: { probability: speechProb, timestamp: now },
-        });
-      }
-    } else if (speechProb < SILENCE_THRESHOLD && isSpeechActive) {
-      if (silenceStartTime === 0) {
-        silenceStartTime = now;
-      }
-      if (now - silenceStartTime >= MIN_SILENCE_DURATION_MS) {
-        isSpeechActive = false;
-        speechStartTime = 0;
-        self.postMessage({
-          type: "speech_end",
-          payload: {
-            probability: speechProb,
-            timestamp: now,
-            duration_ms: now - silenceStartTime + MIN_SILENCE_DURATION_MS,
-          },
-        });
-      }
-    } else {
-      if (speechProb >= SPEECH_THRESHOLD) {
-        silenceStartTime = 0;
-      } else {
-        speechStartTime = 0;
-      }
+    const decision = endpoint.process(probability, (FRAME_SAMPLES / SAMPLE_RATE) * 1000);
+    if (decision.speechStarted) {
+      self.postMessage({ type: "speech_start", payload: { probability } });
     }
-
-    // Continuous probability updates (throttled)
-    self.postMessage({
-      type: "vad_score",
-      payload: { probability: speechProb, isSpeaking: isSpeechActive },
-    });
-  } catch (error) {
-    self.postMessage({
-      type: "error",
-      payload: { message: `VAD processing error: ${error}` },
-    });
+    if (decision.speechEnded) {
+      self.postMessage({
+        type: "speech_end",
+        payload: { probability, silence_ms: decision.silenceMs },
+      });
+    }
   }
 }
 
-function resetState() {
-  isSpeechActive = false;
-  speechStartTime = 0;
-  silenceStartTime = 0;
-  if (h_state) h_state.fill(0);
-  if (c_state) c_state.fill(0);
+function append(left: Float32Array, right: Float32Array): Float32Array {
+  const joined = new Float32Array(left.length + right.length);
+  joined.set(left, 0);
+  joined.set(right, left.length);
+  return joined;
 }
 
-// IndexedDB helpers for model caching (§22)
-async function loadFromCache(modelName: string): Promise<ArrayBuffer | null> {
-  return new Promise((resolve) => {
-    try {
-      const request = indexedDB.open("coc_model_cache", 1);
-      request.onupgradeneeded = () => {
-        const db = request.result;
-        if (!db.objectStoreNames.contains("models")) {
-          db.createObjectStore("models");
-        }
-      };
-      request.onsuccess = () => {
-        const db = request.result;
-        const tx = db.transaction("models", "readonly");
-        const store = tx.objectStore("models");
-        const get = store.get(modelName);
-        get.onsuccess = () => resolve(get.result || null);
-        get.onerror = () => resolve(null);
-      };
-      request.onerror = () => resolve(null);
-    } catch {
-      resolve(null);
-    }
-  });
-}
-
-async function saveToCache(modelName: string, data: ArrayBuffer): Promise<void> {
-  return new Promise((resolve) => {
-    try {
-      const request = indexedDB.open("coc_model_cache", 1);
-      request.onsuccess = () => {
-        const db = request.result;
-        const tx = db.transaction("models", "readwrite");
-        const store = tx.objectStore("models");
-        store.put(data, modelName);
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => resolve();
-      };
-      request.onerror = () => resolve();
-    } catch {
-      resolve();
-    }
-  });
+function resetState(): void {
+  hiddenState.fill(0);
+  context.fill(0);
+  pendingSamples = new Float32Array(0);
+  endpoint.reset();
 }
 
 export {};

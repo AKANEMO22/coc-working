@@ -31,6 +31,8 @@ backend/models/laya/*.pt
 backend/models/laya/*.onnx
 frontend/public/models/*.onnx
 frontend/public/models/*.bin
+!frontend/public/models/silero_vad.onnx
+frontend/public/models/ort/*.wasm
 
 # IDE
 .vscode/
@@ -42,3 +44,7 @@ frontend/public/models/*.bin
 .cache/
 backend/.cache/
 *.log
+
+# Local CV/job/framework dataset can contain personal information.
+# Keep audit metadata and data/README.md, never auto-commit raw CV records.
+/data/normalized/

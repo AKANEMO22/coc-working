@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
+import type { TermCandidate } from "@/lib/technicalTermRecovery";
+import type { ASREvidence } from "@/lib/edgeRuntime";
 
 export interface WSQuestionPayload {
   question_id: string;
@@ -21,18 +23,44 @@ export interface WSSessionStatePayload {
   adaptation_mode?: string;
 }
 
+export interface WSASRGatePayload {
+  transcript_safe: boolean;
+  asr_gate_action: string;
+  asr_confidence: number;
+}
+
+export interface WSStreamDecisionPayload {
+  action: string;
+  decision_id?: string;
+  confidence: number;
+}
+
+export interface WSStreamInterruptionPayload {
+  decision_id: string;
+  action: string;
+  utterance: string;
+}
+
 interface UseInterviewSocketOptions {
   sessionId: string;
   onStateSync?: (state: WSSessionStatePayload) => void;
+  onAsrGateResult?: (result: WSASRGatePayload, turnId?: string) => void;
+  onStreamDecision?: (decision: WSStreamDecisionPayload) => void;
+  onStreamInterruption?: (interruption: WSStreamInterruptionPayload) => void;
+  onStreamInterruptionCancelled?: (reason: string) => void;
   onQuestionReceived?: (question: WSQuestionPayload) => void;
   onReverseAnswer?: (answer: { answer: string; references?: string[] }) => void;
   onSessionEnded?: (payload: { status: string; reason: string }) => void;
-  onError?: (error: string) => void;
+  onError?: (error: string, details?: { code?: string; retryable?: boolean }) => void;
 }
 
 export function useInterviewSocket({
   sessionId,
   onStateSync,
+  onAsrGateResult,
+  onStreamDecision,
+  onStreamInterruption,
+  onStreamInterruptionCancelled,
   onQuestionReceived,
   onReverseAnswer,
   onSessionEnded,
@@ -41,11 +69,16 @@ export function useInterviewSocket({
   const [isConnected, setIsConnected] = useState(false);
   const [isReconnecting, setIsReconnecting] = useState(false);
   const socketRef = useRef<WebSocket | null>(null);
+  const connectRef = useRef<(() => void) | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const shouldReconnectRef = useRef(true);
 
   const callbacksRef = useRef({
     onStateSync,
+    onAsrGateResult,
+    onStreamDecision,
+    onStreamInterruption,
+    onStreamInterruptionCancelled,
     onQuestionReceived,
     onReverseAnswer,
     onSessionEnded,
@@ -55,6 +88,10 @@ export function useInterviewSocket({
   useEffect(() => {
     callbacksRef.current = {
       onStateSync,
+      onAsrGateResult,
+      onStreamDecision,
+      onStreamInterruption,
+      onStreamInterruptionCancelled,
       onQuestionReceived,
       onReverseAnswer,
       onSessionEnded,
@@ -63,7 +100,7 @@ export function useInterviewSocket({
   });
 
   const getWsUrl = useCallback(() => {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
     const wsUrl = apiUrl.replace(/^http/, "ws");
     return `${wsUrl}/ws/interview/${sessionId}`;
   }, [sessionId]);
@@ -99,6 +136,22 @@ export function useInterviewSocket({
               callbacksRef.current.onStateSync?.(payload);
               break;
 
+            case "asr_gate_result":
+              callbacksRef.current.onAsrGateResult?.(payload, data.turn_id);
+              break;
+
+            case "stream_decision":
+              callbacksRef.current.onStreamDecision?.(payload);
+              break;
+
+            case "stream_interruption":
+              callbacksRef.current.onStreamInterruption?.(payload);
+              break;
+
+            case "stream_interruption_cancelled":
+              callbacksRef.current.onStreamInterruptionCancelled?.(payload?.reason || "Không thể hỏi làm rõ lúc này.");
+              break;
+
             case "question_text":
               callbacksRef.current.onQuestionReceived?.(payload);
               break;
@@ -116,7 +169,7 @@ export function useInterviewSocket({
                 shouldReconnectRef.current = false;
                 setIsReconnecting(false);
               }
-              callbacksRef.current.onError?.(payload?.message || "Lỗi WebSocket từ server");
+              callbacksRef.current.onError?.(payload?.message || "Lỗi WebSocket từ server", payload);
               break;
 
             default:
@@ -136,7 +189,7 @@ export function useInterviewSocket({
           if (!reconnectTimeoutRef.current) {
             reconnectTimeoutRef.current = setTimeout(() => {
               reconnectTimeoutRef.current = null;
-              connect();
+              connectRef.current?.();
             }, 3000);
           }
         }
@@ -145,11 +198,15 @@ export function useInterviewSocket({
       ws.onerror = () => {
         // Handled via onclose and error messages
       };
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error("WebSocket connection failure:", e);
-      callbacksRef.current.onError?.(e.message || "Không thể kết nối đến máy chủ WebSocket");
+      callbacksRef.current.onError?.(e instanceof Error ? e.message : "Không thể kết nối đến máy chủ WebSocket");
     }
   }, [sessionId, getWsUrl]);
+
+  useEffect(() => {
+    connectRef.current = connect;
+  }, [connect]);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -170,7 +227,7 @@ export function useInterviewSocket({
   }, [sessionId, connect]);
 
   // Send helpers matching backend interview_turn_ws.py message types
-  const sendPartialTranscript = useCallback((text: string, features?: any) => {
+  const sendPartialTranscript = useCallback((text: string, features?: unknown) => {
     if (socketRef.current?.readyState === WebSocket.OPEN) {
       socketRef.current.send(
         JSON.stringify({
@@ -181,12 +238,32 @@ export function useInterviewSocket({
     }
   }, []);
 
-  const sendFinalTranscript = useCallback((text: string, termCandidates?: any[]) => {
+  const sendStreamSegment = useCallback((text: string, decisionId: string) => {
+    if (socketRef.current?.readyState === WebSocket.OPEN) {
+      socketRef.current.send(JSON.stringify({
+        type: "stream_segment",
+        payload: { text, decision_id: decisionId },
+      }));
+    }
+  }, []);
+
+  const sendClientTiming = useCallback((phase: "first_audio_started" | "answer_to_first_audio" | "speech_to_partial_text" | "speech_end_to_final_text", latencyMs: number, turnId?: string) => {
+    if (socketRef.current?.readyState === WebSocket.OPEN && Number.isFinite(latencyMs) && latencyMs >= 0) {
+      socketRef.current.send(JSON.stringify({
+        type: "client_timing",
+        payload: { phase, latency_ms: Math.round(latencyMs), ...(turnId ? { turn_id: turnId } : {}) },
+      }));
+    }
+  }, []);
+
+  const sendFinalTranscript = useCallback((text: string, termCandidates?: TermCandidate[], turnId?: string, verified = false, asrEvidence?: ASREvidence) => {
     if (socketRef.current?.readyState === WebSocket.OPEN) {
       socketRef.current.send(
         JSON.stringify({
           type: "final_transcript",
-          payload: { text, term_candidates: termCandidates || [] },
+          payload: { text, term_candidates: termCandidates || [], verified,
+            ...(turnId ? { turn_id: turnId } : {}),
+            ...(asrEvidence ? { asr_evidence: asrEvidence } : {}) },
         })
       );
     }
@@ -214,7 +291,7 @@ export function useInterviewSocket({
     }
   }, []);
 
-  const sendReverseQuestion = useCallback((question: string, companyKnowledge?: any) => {
+  const sendReverseQuestion = useCallback((question: string, companyKnowledge?: unknown) => {
     if (socketRef.current?.readyState === WebSocket.OPEN) {
       socketRef.current.send(
         JSON.stringify({
@@ -225,7 +302,7 @@ export function useInterviewSocket({
     }
   }, []);
 
-  const sendCommunicationFeatures = useCallback((features: any) => {
+  const sendCommunicationFeatures = useCallback((features: unknown) => {
     if (socketRef.current?.readyState === WebSocket.OPEN) {
       socketRef.current.send(
         JSON.stringify({
@@ -236,7 +313,7 @@ export function useInterviewSocket({
     }
   }, []);
 
-  const sendSelfReport = useCallback((reportData: any) => {
+  const sendSelfReport = useCallback((reportData: unknown) => {
     if (socketRef.current?.readyState === WebSocket.OPEN) {
       socketRef.current.send(
         JSON.stringify({
@@ -247,15 +324,24 @@ export function useInterviewSocket({
     }
   }, []);
 
+  const retryQuestionGeneration = useCallback(() => {
+    if (socketRef.current?.readyState !== WebSocket.OPEN) return false;
+    socketRef.current.send(JSON.stringify({ type: "reconnect", payload: { retry_question: true } }));
+    return true;
+  }, []);
+
   return {
     isConnected,
     isReconnecting,
     sendPartialTranscript,
+    sendStreamSegment,
+    sendClientTiming,
     sendFinalTranscript,
     sendBargeIn,
     sendConfirmedTranscript,
     sendReverseQuestion,
     sendCommunicationFeatures,
     sendSelfReport,
+    retryQuestionGeneration,
   };
 }

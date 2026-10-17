@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useRef, useEffect } from "react";
-import { MessageSquare, Bot, User, CheckCircle2, AlertCircle } from "lucide-react";
+import { MessageSquare, Bot, User, AlertCircle, Volume2 } from "lucide-react";
 
 export interface TranscriptMessage {
   id: string;
@@ -9,20 +9,22 @@ export interface TranscriptMessage {
   text: string;
   time: string;
   isPartial?: boolean;
-  needsConfirmation?: boolean;
+  needsRepeat?: boolean;
   termCandidates?: string[];
+  speechText?: string;
+  speechPending?: boolean;
 }
 
 interface TranscriptBoxProps {
   messages: TranscriptMessage[];
   currentPartialText?: string;
-  onConfirmTranscript?: (messageId: string, confirmedText: string) => void;
+  onSpeak?: (text: string) => void;
 }
 
 export function TranscriptBox({
   messages,
   currentPartialText,
-  onConfirmTranscript,
+  onSpeak,
 }: TranscriptBoxProps) {
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
@@ -50,6 +52,7 @@ export function TranscriptBox({
         {messages.map((msg) => (
           <div
             key={msg.id}
+            data-message-id={msg.id}
             className={`flex flex-col ${
               msg.role === "candidate" ? "items-end" : "items-start"
             }`}
@@ -77,6 +80,18 @@ export function TranscriptBox({
               <span className="text-[10px] text-[var(--text-muted)] ml-1">
                 {msg.time}
               </span>
+              {msg.role === "ai" && onSpeak && msg.speechText && (
+                <button
+                  type="button"
+                  disabled={msg.speechPending}
+                  onClick={() => onSpeak(msg.speechText || msg.text)}
+                  title="Nghe lại câu hỏi"
+                  aria-label="Nghe lại câu hỏi"
+                  className="ml-1 rounded-md p-1 text-[var(--coc-primary)] hover:bg-[var(--coc-primary)]/10 disabled:opacity-40"
+                >
+                  <Volume2 className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
 
             <div
@@ -88,35 +103,15 @@ export function TranscriptBox({
                   : "bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs"
               }`}
             >
-              <p>{msg.text}</p>
+              <p>{msg.text || (msg.speechPending ? "Đang chuẩn bị lời thoại…" : "")}</p>
 
-              {/* ASR Gate Confirmation Fallback (§8.2) */}
-              {msg.needsConfirmation && onConfirmTranscript && (
+              {/* Unclear speech is handled by an automatic spoken follow-up. */}
+              {msg.needsRepeat && (
                 <div className="mt-2.5 pt-2 border-t border-white/20">
-                  <div className="flex items-center gap-1.5 text-xs text-amber-200 mb-1.5 font-medium">
+                  <div className="flex items-center gap-1.5 text-xs text-amber-200 font-medium">
                     <AlertCircle className="w-3.5 h-3.5" />
-                    <span>Cần xác nhận thuật ngữ kỹ thuật:</span>
+                    <span>Chưa nghe rõ ý này; AI sẽ hỏi lại bằng giọng nói.</span>
                   </div>
-                  {msg.termCandidates && msg.termCandidates.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mb-2">
-                      {msg.termCandidates.map((cand, idx) => (
-                        <button
-                          key={idx}
-                          onClick={() => onConfirmTranscript(msg.id, cand)}
-                          className="px-2 py-0.5 rounded text-xs bg-white/20 hover:bg-white/30 text-white font-mono"
-                        >
-                          {cand}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  <button
-                    onClick={() => onConfirmTranscript(msg.id, msg.text)}
-                    className="flex items-center gap-1 text-xs bg-emerald-500/30 hover:bg-emerald-500/40 text-emerald-100 px-2.5 py-1 rounded-md transition-all font-medium"
-                  >
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>Xác nhận nội dung đúng</span>
-                  </button>
                 </div>
               )}
             </div>

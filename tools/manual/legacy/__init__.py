@@ -1,0 +1,1 @@
+"""tools/manual/legacy package."""

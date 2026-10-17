@@ -9,9 +9,8 @@ export function Header() {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const navLinks = [
-    { href: "/", label: "Trang chủ" },
-    { href: "/cv-lab", label: "Lab Tối ưu CV" },
     { href: "/interview", label: "Phòng Phỏng vấn" },
+    ...(process.env.NODE_ENV === "development" ? [{ href: "/debug", label: "Debug luồng" }] : []),
   ];
 
   return (
@@ -19,7 +18,7 @@ export function Header() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
-          <Link href="/" className="flex items-center gap-2 group">
+          <Link href="/interview" className="flex items-center gap-2 group">
             <span className="text-2xl">🐸</span>
             <span className="text-lg font-bold gradient-text hidden sm:inline">
               Cóc Đi Làm

@@ -10,9 +10,9 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Cóc Đi Làm — Phòng Lab Phỏng Vấn OJT Thực Chiến",
+  title: "Cóc Đi Làm — Luyện Phỏng Vấn OJT",
   description:
-    "Hệ thống AI đồng hành từ tối ưu CV đến phỏng vấn 1-1 bằng giọng nói thời gian thực. Giúp sinh viên FPT tự tin trước phỏng vấn OJT.",
+    "Luyện phỏng vấn 1-1 bằng giọng nói với AI, theo chuyên môn, khung đánh giá và CV/JD của ứng viên.",
   keywords: ["phỏng vấn OJT", "CV", "FPT", "interview practice", "AI voice interview"],
 };
 
