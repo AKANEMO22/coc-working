@@ -15,22 +15,64 @@
 
 Các weight Qwen, VieNeu và Laya được tải/cache trên máy chạy backend. Câu hỏi và rubric gửi văn bản liên quan tới Gemini; âm thanh micro đi tới backend local. Luồng hiện tại không gọi ElevenLabs hay Web Speech Recognition.
 
-## Luồng một buổi phỏng vấn
+## Kiến trúc hệ thống tổng thể (System Architecture)
 
 ```mermaid
-flowchart LR
-  D[CV + JD + khung trong data/normalized] --> S[FastAPI tạo session và blueprint]
-  S --> G[Gemini sinh câu hỏi mở đầu]
-  G --> T[VieNeu sinh WAV]
-  T --> B[Browser phát audio + hiện chữ theo tiến độ]
-  B --> V[Micro + Silero hoặc energy VAD local]
-  V --> Q[FastAPI /stt/transcribe → Qwen3-ASR]
-  Q --> W[WebSocket phỏng vấn: partial/final transcript]
-  W --> L[Laya + Hard Policy]
-  L -->|nghe tiếp hoặc hỏi lại| G
-  L -->|câu trả lời đã xác nhận| S
-  S -->|câu kế tiếp| G
-  S -->|kết thúc phiên| R[Gemini chấm rubric + report]
+flowchart TD
+    subgraph Client["Trình duyệt (Frontend - Next.js 16)"]
+        UI["Giao diện phỏng vấn trực tiếp\n/interview/[sessionId]"]
+        VAD["Silero VAD / Energy VAD\n(Phát hiện giọng nói & ngắt câu)"]
+        AudioRec["Web Audio Recorder\n(Thu âm micro 16kHz)"]
+        Karaoke["Karaoke Subtitles Sync\n(Highlight chữ khớp mili-giây)"]
+        AudioPlayer["HTML Audio Element\n(WSOLA time-stretching 0.92x)"]
+    end
+
+    subgraph BackendGateway["FastAPI Gateway (Port 8000)"]
+        WS["WebSocket Controller\n/ws/interview/{session_id}"]
+        SpeechAPI["Speech Router\n/api/v1/tts & /api/v1/stt"]
+        SessionAPI["Sessions Router\n/api/v1/sessions"]
+    end
+
+    subgraph DecisionEngine["Hệ thống ra quyết định & Hội thoại (Backend Domains)"]
+        Orchestrator["Question Service & Dialogue Orchestrator\n(Chuẩn hóa phong thái Tech Lead)"]
+        Laya["Local Laya System-1 Controller\n(convaiinnovations/laya-multilingual trên CPU)"]
+        Policy["Hard Policy Engine\n(Kiểm soát an toàn turn & ASR gate)"]
+        Evaluator["Rubric Evidence Evaluator\n(STAR, Technical, Case Study, HR Motivation)"]
+        Report["OJT Report Service\n(Tổng hợp 4 trục năng lực OJT)"]
+    end
+
+    subgraph SpeechModels["Hạ tầng AI cục bộ (NVIDIA RTX 4050 GPU 6GB)"]
+        STT["Qwen3-ASR 1.7B (bfloat16)\nNhận diện giọng nói ~700ms"]
+        TTS["VieNeu-TTS v3 Turbo (48kHz)\n+ 150ms Zero-Padding Buffer\n(Giọng Hải Đăng, triệt tiêu nuốt chữ đầu)"]
+    end
+
+    subgraph CloudAI["Cloud Foundation Model"]
+        Gemini["Google Gemini 2.0 Flash\n(Tạo lời thoại tự nhiên & Đánh giá Rubric)"]
+    end
+
+    %% Flow connections
+    AudioRec -->|Stream Audio PCM| VAD
+    VAD -->|Final Audio Buffer| SpeechAPI
+    SpeechAPI -->|WAV 16kHz| STT
+    STT -->|Transcript Tiếng Việt| WS
+
+    WS -->|Transcript đã xác minh| Laya
+    Laya -->|Hành động điều phối\nprobe / same_level / harder| Policy
+    Policy -->|Validated Action| Orchestrator
+
+    Orchestrator -->|Prompt Mock Interview| Gemini
+    Gemini -->|Lời thoại kết nối + Câu hỏi mới| Orchestrator
+    Orchestrator -->|QUESTION_TEXT| WS
+    WS -->|QUESTION_TEXT payload| UI
+
+    UI -->|Yêu cầu tổng hợp giọng nói| SpeechAPI
+    SpeechAPI -->|Văn bản sạch| TTS
+    TTS -->|WAV 48kHz + 150ms buffer & offset| AudioPlayer
+    AudioPlayer --> Karaoke
+
+    SessionAPI -->|Kết thúc phiên| Evaluator
+    Evaluator -->|Chấm điểm rubric| Gemini
+    Evaluator --> Report
 ```
 
 1. Người dùng chọn CV; giao diện lấy chuyên môn và cấp độ từ CV mẫu hoặc hồ sơ CV đã tải lên để lọc các JD đã có khung. CV mẫu không có JD khớp bị ẩn khỏi danh sách. Không còn hai ô chọn chuyên môn/cấp độ riêng. Người dùng vẫn chọn **JD cụ thể** trong danh sách đã lọc, vì yêu cầu tuyển dụng và công ty không nằm trong CV. JD đã chọn quyết định khung phỏng vấn; CV bổ sung bằng chứng cá nhân. CV không có chuyên môn/cấp độ rõ hoặc không có JD khớp sẽ không được tự ghép JD khác ngành/cấp độ.
