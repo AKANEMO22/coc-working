@@ -1,4 +1,4 @@
-# Cóc Đi Làm — phỏng vấn thoại theo CV, JD và khung chuyên môn
+# CÓC ĐI LÀM — Nền Tảng Phỏng Vấn OJT Thực Chiến: Luyện phỏng vấn chuyên sâu bằng giọng nói kết hợp kiểm toán CV & JD Gap Analysis.
 
 Ứng dụng gồm **một backend FastAPI** chia theo domain và một frontend Next.js. Các domain hiện chạy trong cùng process; cấu trúc folder chưa phải microservices.
 
