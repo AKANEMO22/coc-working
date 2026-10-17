@@ -44,6 +44,8 @@ frontend/public/models/ort/*.wasm
 .cache/
 backend/.cache/
 *.log
+.kilo/
+.kilocode/
 
 # Local CV/job/framework dataset can contain personal information.
 # Keep audit metadata and data/README.md, never auto-commit raw CV records.

@@ -1,5 +1,6 @@
 # Công cụ vận hành/thử thủ công — không thuộc luồng app
 
+- `benchmarks/`: kịch bản đo độ trễ pipeline phỏng vấn thật (`benchmark_interview_local_two_runs.py`), smoke test VAD/micro browser (`browser_local_voice_smoke.py`), và render báo cáo nghiệm thu (`render_local_benchmark_report.py`).
 - `manual/interview_monitor.py`: xem log phiên trên backend đang chạy.
 - `manual/live/`: thử hội thoại/WebSocket/E2E thật; có thể gọi provider và tiêu
   tốn quota. Chỉ chạy khi chủ động yêu cầu, không nằm trong pytest mặc định.

@@ -27,7 +27,7 @@ import unicodedata
 import httpx
 import websockets
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 BACKEND = ROOT / "backend"
 sys.path.insert(0, str(BACKEND))
 
@@ -35,7 +35,7 @@ SOURCE_FILES = sorted({str(path.relative_to(ROOT)).replace("\\", "/")
                        for root, patterns in ((ROOT / "backend" / "app", ("*.py",)),
                                               (ROOT / "frontend" / "src", ("*.ts", "*.tsx")))
                        for pattern in patterns for path in root.rglob(pattern)}
-                      | {"tools/benchmark_interview_local_two_runs.py"})
+                      | {"tools/benchmarks/benchmark_interview_local_two_runs.py"})
 
 
 def source_hashes() -> dict[str, str]:
@@ -645,7 +645,7 @@ def main() -> None:
     if not settings.google_gemini_api_key:
         print("STOP credentials_missing; provider_calls=0")
         return
-    report_path = ROOT / "docs" / "interview_pipeline_local_benchmark_20261016.json"
+    report_path = ROOT / "docs" / "benchmarks" / "interview_pipeline_local_benchmark_20261016.json"
     all_runs: list[dict[str, Any]] = []
     run_numbers = [1, 2]
     if settings.tts_provider != "vieneu":

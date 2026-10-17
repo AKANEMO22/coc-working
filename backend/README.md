@@ -17,4 +17,4 @@ Cấu hình tại `backend/.env` theo `backend/.env.example`. Giọng mặc đ�
 
 Mỗi WAV micro chỉ tồn tại trong bộ nhớ browser và file tạm ở backend trong lúc Qwen nhận dạng; file tạm được xóa trong `finally`. VieNeu sinh WAV và mốc hiển thị chữ **ước lượng** theo tổng thời lượng audio vì model không trả mốc từng âm tiết.
 
-Chạy regression từ root: `python -m pytest backend/tests -q`. Kiểm tra model/route thật: `python tools/preflight_local_models.py`. Benchmark hai phiên đầy đủ: `python tools/benchmark_interview_local_two_runs.py --live --runs 2` (gọi Gemini API thật).
+Chạy regression từ root: `python -m pytest backend/tests -q`. Kiểm tra model/route thật: `python tools/preflight_local_models.py`. Benchmark hai phiên đầy đủ: `python tools/benchmarks/benchmark_interview_local_two_runs.py --live --runs 2` (gọi Gemini API thật).

@@ -6,9 +6,9 @@ import re
 import statistics
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "docs" / "interview_pipeline_local_benchmark_20261016.json"
-TARGET = ROOT / "docs" / "interview_pipeline_local_benchmark_20261016.md"
+ROOT = Path(__file__).resolve().parents[2]
+SOURCE = ROOT / "docs" / "benchmarks" / "interview_pipeline_local_benchmark_20261016.json"
+TARGET = ROOT / "docs" / "benchmarks" / "interview_pipeline_local_benchmark_20261016.md"
 
 
 def safe(value: object) -> str:
@@ -36,7 +36,7 @@ def main() -> None:
         f"trạng thái {', '.join(acceptance.get('statuses') or [])}.",
         f"- Source không đổi giữa các phiên: **{safe(data.get('code_unchanged_during_run'))}**. Nếu False, không tính kết quả nghiệm thu dù các phiên riêng lẻ báo PASS.",
         "- Đây là E2E backend/audio API với CV/JD và câu trả lời giả lập: VieNeu WAV → Qwen3-ASR → WebSocket → Laya → Gemini → VieNeu → rubric cuối phiên. Playback được mô phỏng bằng thời gian audio.",
-        "- UI, micro và Silero trong Chrome được kiểm tra riêng ở `docs/browser_local_voice_smoke_20261016.json`.",
+        "- UI, micro và Silero trong Chrome được kiểm tra riêng ở `docs/benchmarks/browser_local_voice_smoke_20261016.json`.",
         "- VieNeu trả mốc chữ **ước lượng**, không phải forced alignment; chưa thể xác nhận chữ khớp từng âm tiết chỉ bằng benchmark này.",
         "", "## Các model đã sử dụng", "",
         "| Thành phần | Model | Nơi chạy |", "|---|---|---|",

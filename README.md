@@ -95,7 +95,8 @@ frontend/src/lib/edgeRuntime.ts     Thu WAV, gọi STT/TTS và phát audio
 frontend/src/workers/vad.worker.ts  Silero VAD trong browser
 data/normalized/                    candidates_clean.json, jobs_below_mid_clean.json,
                                     interview_frameworks_clean.json
-tools/                              Benchmark và kiểm tra thủ công
+docs/                               Tài liệu kiến trúc, JSON schemas, báo cáo benchmark
+tools/                              Công cụ benchmark, kiểm tra thủ công và admin
 ```
 
 Ranh giới domain và quy tắc import ở [backend/app/domains/README.md](backend/app/domains/README.md). Debug luồng local tại `http://127.0.0.1:3000/debug`; backend health ở `http://127.0.0.1:8000/health`.
@@ -136,4 +137,4 @@ npm test
 npm run build
 ```
 
-Kiểm tra model local bằng `python tools/preflight_local_models.py`. Benchmark đầy đủ hai phiên 8 lượt với **Gemini API thật** chạy bằng `python tools/benchmark_interview_local_two_runs.py --live --runs 2`; script sinh lời ứng viên bằng VieNeu, cho Qwen nghe WAV, gửi transcript qua WebSocket, để Gemini/Laya điều phối và chấm cuối phiên. Kịch bản này kiểm tra backend/audio API; thử micro, Silero và phát audio trong browser cần chạy UI tương tác riêng.
+Kiểm tra model local bằng `python tools/preflight_local_models.py`. Benchmark đầy đủ hai phiên 8 lượt với **Gemini API thật** chạy bằng `python tools/benchmarks/benchmark_interview_local_two_runs.py --live --runs 2`; script sinh lời ứng viên bằng VieNeu, cho Qwen nghe WAV, gửi transcript qua WebSocket, để Gemini/Laya điều phối và chấm cuối phiên. Kịch bản này kiểm tra backend/audio API; thử micro, Silero và phát audio trong browser cần chạy UI tương tác riêng.

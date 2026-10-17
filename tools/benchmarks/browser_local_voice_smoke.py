@@ -26,10 +26,10 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import Select, WebDriverWait
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 BACKEND = ROOT / "backend"
 FRONTEND = ROOT / "frontend"
-REPORT = ROOT / "docs" / "browser_local_voice_smoke_20261016.json"
+REPORT = ROOT / "docs" / "benchmarks" / "browser_local_voice_smoke_20261016.json"
 
 
 def redact(value: str) -> str:
@@ -98,12 +98,12 @@ def main() -> int:
     parser.add_argument("--ambiguous-term", action="store_true",
                         help="Simulate an evidenced phonetic technical-term candidate at the WS boundary.")
     args = parser.parse_args()
-    report = (ROOT / "docs" / "browser_local_voice_ambiguous_term_20261017.json") if args.ambiguous_term else (
-        ROOT / "docs" / "browser_local_voice_quiet_20261017.json") if args.quiet_mic else (
-        ROOT / "docs" / "browser_local_voice_mild_noise_20261017.json") if args.mild_noise else (
-        ROOT / "docs" / "browser_local_voice_unclear_20261016.json") if args.unclear_mic else (
-        ROOT / "docs" / "browser_local_voice_silence_20261016.json") if args.silent_mic else (
-        ROOT / "docs" / "browser_local_voice_fallback_20261016.json") if args.force_vad_fallback else REPORT
+    report = (ROOT / "docs" / "benchmarks" / "browser_local_voice_ambiguous_term_20261017.json") if args.ambiguous_term else (
+        ROOT / "docs" / "benchmarks" / "browser_local_voice_quiet_20261017.json") if args.quiet_mic else (
+        ROOT / "docs" / "benchmarks" / "browser_local_voice_mild_noise_20261017.json") if args.mild_noise else (
+        ROOT / "docs" / "benchmarks" / "browser_local_voice_unclear_20261016.json") if args.unclear_mic else (
+        ROOT / "docs" / "benchmarks" / "browser_local_voice_silence_20261016.json") if args.silent_mic else (
+        ROOT / "docs" / "benchmarks" / "browser_local_voice_fallback_20261016.json") if args.force_vad_fallback else REPORT
     result: dict = {"created_at_utc": datetime.now(timezone.utc).isoformat(), "status": "PARTIAL",
                     "forced_vad_fallback": args.force_vad_fallback, "silent_mic": args.silent_mic,
                     "unclear_mic": args.unclear_mic, "mild_noise": args.mild_noise,
